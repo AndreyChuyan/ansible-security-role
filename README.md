@@ -48,7 +48,7 @@
 ### Через ansible-galaxy (рекомендуется)
 
 ```bash
-ansible-galaxy install git+https://github.com/yourusername/ansible-security-baseline.git
+ansible-galaxy install git+https://github.com/AndreyChuyan/ansible-security-role.git
 ```
 
 ### Через requirements.yml
@@ -57,7 +57,7 @@ ansible-galaxy install git+https://github.com/yourusername/ansible-security-base
 # requirements.yml
 roles:
   - name: ansible-security-baseline
-    src: https://github.com/yourusername/ansible-security-baseline.git
+    src: https://github.com/AndreyChuyan/ansible-security-role.git
     version: main
 ```
 
@@ -68,7 +68,7 @@ ansible-galaxy install -r requirements.yml
 ### Клонирование репозитория
 
 ```bash
-git clone https://github.com/yourusername/ansible-security-baseline.git roles/ansible-security-baseline
+git clone https://github.com/AndreyChuyan/ansible-security-role.git roles/ansible-security-baseline
 ```
 
 ## ⚡ Быстрый старт
@@ -356,13 +356,49 @@ sudo fail2ban-client status sshd
 sudo sshd -T | grep -E 'permitrootlogin|passwordauthentication|allowusers'
 ```
 
-## ⚠️ Важные примечания
+## ❓ FAQ
 
-1. **Тестируйте в безопасной среде** — неправильная настройка может заблокировать доступ к серверу
-2. **Проверьте SSH-ключи** — убедитесь, что у вас настроенааутентификация по ключам
-3. Сохраните доступ — всегда имейте альтернативный способ доступа (консоль, IPMI)
-4. Порт SSH — при изменении порта не забудьте обновить правила UFW
-5. Fail2Ban логи — следите за `/var/log/fail2ban.log` для отладки
+<details>
+<summary><b>Можно ли использовать роль на production без тестирования?</b></summary>
+
+**Нет!** Всегда тестируйте на dev/staging окружении. Роль изменяет критичные настройки безопасности.
+</details>
+
+<details>
+<summary><b>Как откатить изменения если что-то пошло не так?</b></summary>
+
+1. Через консоль (IPMI/VNC) отключите UFW: `sudo ufw disable`
+2. Восстановите оригинальный sshd_config: `sudo cp /etc/ssh/sshd_config.bak /etc/ssh/sshd_config`
+3. Перезапустите SSH: `sudo systemctl restart sshd`
+
+Роль автоматически создает бэкапы: `/etc/ssh/sshd_config.bak`
+</details>
+
+<details>
+<summary><b>Роль идемпотентна?</b></summary>
+
+Да, роль полностью идемпотентна. Повторный запуск не изменит состояние системы если конфигурация не менялась.
+</details>
+
+<details>
+<summary><b>Какие порты открыты по умолчанию?</b></summary>
+
+По умолчанию открыт только SSH (порт 22). Все остальные порты нужно указывать явно в `ufw.allowed_ports`.
+</details>
+
+<details>
+<summary><b>Роль работает с RedHat/CentOS?</b></summary>
+
+Сейчас поддерживаются только Debian-based дистрибутивы (Ubuntu/Debian). Поддержка RHEL-based систем планируется.
+</details>
+
+## ⚠️ Важные замечания
+
+1. **Бэкапы** — роль автоматически создает бэкапы конфигов (`.bak`)
+2. **Тестирование** — обязательно тестируйте на dev-окружении перед production
+3. **Доступ** — всегда имейте альтернативный способ доступа (консоль, IPMI)
+4. **SSH порт** — при изменении порта не забудьте обновить правила UFW
+5. **Fail2Ban логи** — следите за `/var/log/fail2ban.log` для отладки
 
 ## 🔒 Безопасность
 
@@ -396,5 +432,7 @@ sudo sshd -T | grep -E 'permitrootlogin|passwordauthentication|allowusers'
 - [Fail2Ban Documentation](https://www.fail2ban.org/)
 
 ---
+
+**Made with ❤️ by [Dbgops](https://chuyana.ru)**
 
 ⭐ Если проект оказался полезным, поставьте звездочку!
