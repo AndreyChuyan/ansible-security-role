@@ -1,0 +1,78 @@
+---
+# Настройка MOTD для показа обновлений
+- name: Копирование скрипта проверки обновлений
+  ansible.builtin.template:
+    src: motd-updates.j2
+    dest: /etc/update-motd.d/90-updates
+    mode: '0755'
+
+# Ограничение входа пользователей
+- name: Создание группы для разрешенных пользователей
+  ansible.builtin.group:
+    name: allowed_users
+    state: present
+
+- name: Добавление пользователей в группу allowed_users
+  ansible.builtin.user:
+    name: "{{ item }}"
+    groups: allowed_users
+    append: true
+  loop: "{{ users.allowed_login }}"
+
+# Настройка PAM для ограничения логина
+- name: Ограничение логина через PAM
+  ansible.builtin.lineinfile:
+    path: /etc/pam.d/common-auth
+    line: "auth required pam_succeed_if.so user ingroup allowed_users"
+    insertbefore: "^auth.*pam_unix.so"
+    state: present
+
+# Итоговая проверка и сообщение
+- name: Проверить MOTD, группу allowed_users и PAM-строку
+  vars:
+    expected_users: "{{ users.allowed_login | default([]) }}"
+  block:
+    - name: Статус MOTD-скрипта
+      ansible.builtin.stat:
+        path: /etc/update-motd.d/90-updates
+      register: motd_stat
+
+    - name: Получить участников группы allowed_users
+      ansible.builtin.command: getent group allowed_users
+      register: allowed_group_info
+      changed_when: false
+      failed_when: false
+
+    - name: Сформировать список участников группы
+      ansible.builtin.set_fact:
+        group_members: >-
+          {{
+            (allowed_group_info.stdout.split(':')[-1].split(',')
+            | map('trim') | reject('equalto','') | list)
+            if allowed_group_info.rc == 0 else []
+          }}
+
+    - name: Проверить строку PAM
+      ansible.builtin.command:
+        cmd: grep -Fxq "auth required pam_succeed_if.so user ingroup allowed_users" /etc/pam.d/common-auth
+      register: pam_check
+      changed_when: false
+      failed_when: false
+
+    - name: Итог
+      ansible.builtin.assert:
+        that:
+          - motd_stat.stat.exists | default(false)
+          - (motd_stat.stat.mode | default('')) == '0755'
+          - allowed_group_info.rc == 0
+          - (expected_users | difference(group_members)) | length == 0
+          - pam_check.rc == 0
+        success_msg: >-
+          OK: Всё настроено — MOTD-скрипт есть и 0755, группа allowed_users существует,
+          все нужные пользователи добавлены, PAM-ограничение активно.
+        fail_msg: >-
+          Найдены проблемы:
+          - MOTD-скрипт: {{ 'OK' if (motd_stat.stat.exists | default(false)) else 'нет файла /etc/update-motd.d/90-updates' }} MOTD: (ожидалось 0755)
+          - Группа allowed_users: {{ 'OK' if allowed_group_info.rc == 0 else 'нет группы' }}
+          - Не в allowed_users: {{ (expected_users | difference(group_members)) | join(', ') if (expected_users | difference(group_members)) else 'нет' }}
+          - PAM-строка: {{ 'OK' if pam_check.rc == 0 else 'отсутствует в /etc/pam.d/common-auth' }}

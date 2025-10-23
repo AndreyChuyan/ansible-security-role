@@ -1,0 +1,80 @@
+#!/bin/sh
+# MOTD: проверка обновлений (минималистично, без цвета и без Unicode)
+# Требования: apt, grep, awk, wc. apt-check (из update-notifier-common) — опционально.
+
+export LC_ALL=C
+
+# Ширина рамки (ASCII)
+COLS=$( (command -v tput >/dev/null 2>&1 && tput cols) || echo 80 )
+[ -z "$COLS" ] && COLS=80
+[ "$COLS" -lt 50 ] && COLS=50
+hr() { printf "%s\n" "$(printf "%${COLS}s" "" | tr " " "-")"; }
+
+have_cmd() { command -v "$1" >/dev/null 2>&1; }
+
+count_upgrades_apt_sim() {
+  apt-get -s -o Debug::NoLocking=1 -o APT::Get::Show-User-Simulation-Note=0 upgrade 2>/dev/null \
+    | grep -E '^Inst ' | wc -l | awk '{print $1}'
+}
+
+count_security_apt_sim() {
+  apt-get -s -o Debug::NoLocking=1 -o APT::Get::Show-User-Simulation-Note=0 upgrade 2>/dev/null \
+    | grep -E '^Inst ' | grep -i 'Security' | wc -l | awk '{print $1}'
+}
+
+list_upgradable() {
+  if have_cmd apt; then
+    apt list --upgradable 2>/dev/null | tail -n +2 | cut -d/ -f1 | head -n 10
+  fi
+}
+
+show_update_hint() {
+  echo "Для установки обновлений:"
+  echo "  sudo apt update && sudo apt upgrade"
+  if have_cmd unattended-upgrades; then
+    echo "Просмотр того, что поставит unattended-upgrades (dry-run):"
+    echo "  sudo unattended-upgrades --dry-run --debug"
+  fi
+}
+
+# ---- Вывод ----
+echo
+hr
+echo "Проверка обновлений безопасности"
+
+DETAILS=""
+
+if [ -x /usr/lib/update-notifier/apt-check ]; then
+  # apt-check может печатать на английском; при необходимости локализуйте текст ниже вручную
+  DETAILS="$(/usr/lib/update-notifier/apt-check --human-readable 2>/dev/null)"
+else
+  TOTAL="$(count_upgrades_apt_sim)"
+  SEC="$(count_security_apt_sim)"
+  case "$TOTAL" in
+    ''|0) DETAILS="Обновления отсутствуют" ;;
+    *)
+      if [ -n "$SEC" ] && [ "$SEC" -gt 0 ]; then
+        DETAILS="Доступно обновлений: $TOTAL (в т.ч. security: $SEC)"
+      else
+        DETAILS="Доступно обновлений: $TOTAL"
+      fi
+    ;;
+  esac
+fi
+
+echo "$DETAILS"
+
+# Показываем список пакетов только в fallback-режиме (без apt-check)
+if ! [ -x /usr/lib/update-notifier/apt-check ]; then
+  PKGS="$(list_upgradable)"
+  if [ -n "$PKGS" ]; then
+    echo
+    echo "Некоторые пакеты к обновлению:"
+    echo "$PKGS" | sed 's/^/  - /'
+  fi
+fi
+
+echo
+show_update_hint
+hr
+echo

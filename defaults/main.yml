@@ -1,0 +1,84 @@
+---
+# ============================================================================
+# СЕТЕВАЯ БЕЗОПАСНОСТЬ (UFW)
+# ============================================================================
+ufw:
+  # Разрешенные входящие порты
+  allowed_ports:
+    - { port: 22, proto: tcp, comment: "SSH" }
+  # Выполнять ли полный сброс UFW перед настройкой
+  reset: false
+  # Политика для исходящих соединений (allow/deny/reject)
+  outgoing_policy: allow
+  # Заблокированные исходящие порты
+  blocked_outgoing_ports:
+    - { port: 25, proto: tcp, comment: "Block SMTP" }
+  # Если outgoing_policy: deny, укажите что разрешить
+  allowed_outgoing_ports:
+    - { port: 80, proto: tcp, comment: "HTTP" }
+    - { port: 443, proto: tcp, comment: "HTTPS" }
+    - { port: 53, proto: udp, comment: "DNS" }
+    - { port: 53, proto: tcp, comment: "DNS TCP" }
+    - { port: 123, proto: udp, comment: "NTP" }
+
+# ============================================================================
+# SSH КОНФИГУРАЦИЯ
+# ============================================================================
+ssh:
+  # разрешенные для подключения пользователи
+  allowed_users:
+    - opi
+    - linux
+  # порт для подключения
+  port: 22
+
+# ============================================================================
+# УПРАВЛЕНИЕ ПОЛЬЗОВАТЕЛЯМИ
+# ============================================================================
+users:
+  # Пользователи с правом логина
+  allowed_login:
+    - opi
+    - linux
+# ============================================================================
+# ЗАЩИТА ОТ ВТОРЖЕНИЙ (FAIL2BAN)
+# ============================================================================
+fail2ban:
+  # --- Общие настройки ---
+  global:
+    bantime: "1h"
+    findtime: "10m"
+    maxretry: 5
+    # ignoreip: "127.0.0.1/8 192.168.1.0/24"
+    # destemail: "admin@example.com"
+    # sender: "fail2ban@{{ ansible_fqdn }}"
+    # action: "%(action_mwl)s"  # mail with logs
+
+  # --- Jail для SSH ---
+  ssh:
+    enabled: true
+    maxretry: 3
+    bantime: "24h"
+    findtime: "10m"
+
+  # --- Дополнительные jail'ы ---
+  custom_jails: []
+    # - name: nginx-http-auth
+    #   enabled: true
+    #   filter: nginx-http-auth
+    #   logpath: /var/log/nginx/error.log
+    #   maxretry: 3
+    #   bantime: "1h"
+
+    # - name: nginx-noscript
+    #   enabled: true
+    #   filter: nginx-noscript
+    #   logpath: /var/log/nginx/access.log
+    #   maxretry: 6
+    #   bantime: "2h"
+    #
+    # - name: postfix-sasl
+    #   enabled: true
+    #   filter: postfix[mode=auth]
+    #   logpath: /var/log/mail.log
+    #   maxretry: 3

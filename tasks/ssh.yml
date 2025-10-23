@@ -1,0 +1,85 @@
+---
+- name: Установка необходимых пакетов
+  become: true
+  ansible.builtin.apt:
+    name:
+      - libpam-modules
+      - openssh-server
+    state: present
+    update_cache: true
+
+- name: Резервная копия sshd_config (если существует)
+  become: true
+  ansible.builtin.copy:
+    src: /etc/ssh/sshd_config
+    dest: /etc/ssh/sshd_config.backup
+    remote_src: true
+    force: false
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Настройка SSH конфигурации
+  become: true
+  ansible.builtin.template:
+    src: sshd_config.j2
+    dest: /etc/ssh/sshd_config
+    owner: root
+    group: root
+    mode: '0644'
+    validate: '/usr/sbin/sshd -t -f %s'
+  notify: Restart SSH
+
+- name: Включить PAM-модуль доступа в /etc/pam.d/sshd
+  become: true
+  ansible.builtin.lineinfile:
+    path: /etc/pam.d/sshd
+    line: "account required pam_access.so"
+    state: present
+    create: false
+    insertafter: EOF
+
+- name: Настройка access.conf (разрешить только указанных пользователей)
+  become: true
+  ansible.builtin.blockinfile:
+  args:
+    path: /etc/security/access.conf
+    create: true
+    owner: root
+    group: root
+    mode: '0644'
+    marker: "# {mark} ANSIBLE MANAGED BLOCK - SSH access rules"
+    block: |
+      # Разрешить SSH только указанным пользователям
+      {% if ssh.allowed_users | default([]) | length > 0 %}
+      {% for user in ssh.allowed_users %}
+      + : {{ user }} : ALL
+      {% endfor %}
+      # Запретить всем остальным
+      - : ALL : ALL
+      {% else %}
+      # Список ssh.allowed_users пуст — ограничений не добавляем, чтобы не отрезать доступ
+      {% endif %}
+
+- name: Применить изменения перед итоговой проверкой
+  ansible.builtin.meta: flush_handlers
+
+- name: Проверка SSH (конфиг, сервис, порт)
+  become: true
+  ansible.builtin.shell: |
+    set -euo pipefail
+    /usr/sbin/sshd -t -f /etc/ssh/sshd_config
+    (systemctl is-active --quiet sshd || systemctl is-active --quiet ssh)
+    ss -lnt | awk '{print $4}' | grep -qE ':({{ ssh.port | default(22) }})$'
+  args:
+    executable: /bin/bash
+  register: ssh_check
+  changed_when: false
+  failed_when: ssh_check.rc != 0
+
+- name: Итоговое сообщение о настройке SSH
+  ansible.builtin.assert:
+    that:
+      - ssh_check.rc == 0
+    success_msg: "OK: SSH настроен успешно — конфиг валиден, служба активна, порт {{ ssh.port | default(22) }} слушается."
+    fail_msg: "Ошибка: Проверка SSH не прошла. Подробности: {{ ssh_check.stderr | default(ssh_check.stdout) }}"

@@ -1,0 +1,76 @@
+# =============================================================================
+# FAIL2BAN CONFIGURATION
+# =============================================================================
+# Автоматически сгенерирован Ansible
+# Дата: {{ ansible_date_time.iso8601 }}
+# Хост: {{ ansible_hostname }}
+# =============================================================================
+
+[DEFAULT]
+# --- Основные настройки ---
+bantime  = {{ fail2ban.global.bantime | default('1h') }}
+findtime = {{ fail2ban.global.findtime | default('10m') }}
+maxretry = {{ fail2ban.global.maxretry | default(5) }}
+
+# --- Игнорируемые IP ---
+ignoreip = 127.0.0.1/8 ::1 {% if fail2ban.global.ignoreip is defined %}{{ fail2ban.global.ignoreip }}{% endif %}
+
+# --- Backend для логов ---
+backend = systemd
+
+# --- Действие при бане ---
+banaction = ufw
+banaction_allports = ufw
+
+# --- Email уведомления ---
+{% if fail2ban.global.destemail is defined %}
+destemail = {{ fail2ban.global.destemail }}
+sender = {{ fail2ban.global.sender | default('fail2ban@' ~ ansible_fqdn) }}
+action = {{ fail2ban.global.action | default('%(action_mwl)s') }}
+{% else %}
+action = %(action_)s
+{% endif %}
+
+# --- Настройки для UFW ---
+[Init]
+chain = ufw-user-input
+
+# =============================================================================
+# SSH JAIL
+# =============================================================================
+[sshd]
+enabled  = {{ fail2ban.ssh.enabled | default(true) | lower }}
+port     = {{ ssh_port | default('22') }}
+filter   = sshd
+logpath  = /var/log/auth.log
+maxretry = {{ fail2ban.ssh.maxretry | default(3) }}
+bantime  = {{ fail2ban.ssh.bantime | default('24h') }}
+findtime = {{ fail2ban.ssh.findtime | default('10m') }}
+
+{% if fail2ban.custom_jails is defined and fail2ban.custom_jails | length > 0 %}
+# =============================================================================
+# ДОПОЛНИТЕЛЬНЫЕ JAIL'Ы
+# =============================================================================
+{% for jail in fail2ban.custom_jails %}
+
+[{{ jail.name }}]
+enabled  = {{ jail.enabled | default(true) | lower }}
+{% if jail.port is defined %}
+port     = {{ jail.port }}
+{% endif %}
+filter   = {{ jail.filter }}
+logpath  = {{ jail.logpath }}
+maxretry = {{ jail.maxretry | default(fail2ban.global.maxretry | default(5)) }}
+bantime  = {{ jail.bantime | default(fail2ban.global.bantime | default('1h')) }}
+{% if jail.findtime is defined %}
+findtime = {{ jail.findtime }}
+{% endif %}
+{% if jail.action is defined %}
+action   = {{ jail.action }}
+{% endif %}
+{% endfor %}
+{% endif %}
+
+# =============================================================================
+# КОНЕЦ КОНФИГУРАЦИИ
+# =============================================================================

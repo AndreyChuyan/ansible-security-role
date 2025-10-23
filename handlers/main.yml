@@ -1,0 +1,25 @@
+---
+- name: Restart SSH
+  become: true
+  ansible.builtin.systemd:
+    name: "{{ (ansible_facts.services['sshd.service'] is defined) | ternary('sshd', 'ssh') }}"
+    state: restarted
+    enabled: true
+
+- name: Restart UFW
+  ansible.builtin.systemd:
+    name: ufw
+    state: restarted
+  become: true
+
+- name: Restart fail2ban
+  ansible.builtin.systemd:
+    name: fail2ban
+    state: restarted
+  become: true
+
+- name: Reload fail2ban
+  ansible.builtin.systemd:
+    name: fail2ban
+    state: reloaded
+  become: true

@@ -1,0 +1,101 @@
+# security-host/tasks/ufw.yml
+---
+# Установка UFW
+- name: Установка UFW
+  ansible.builtin.apt:
+    name: ufw
+    state: present
+  become: true
+
+# Сброс UFW к начальному состоянию (опционально)
+- name: Отключить UFW перед сбросом
+  community.general.ufw:
+    state: disabled
+  when: (ufw | default({})).reset | default(false)
+  become: true
+
+- name: Сбросить все правила UFW (полный reset)
+  ansible.builtin.command: ufw --force reset
+  become: true
+  when: (ufw | default({})).reset | default(false)
+  register: ufw_reset_result
+  changed_when: "'reset' in ufw_reset_result.stdout | lower"
+
+# Настройка /etc/default/ufw (не создаем файл, только правим, если существует)
+- name: Проверить наличие файла /etc/default/ufw
+  ansible.builtin.stat:
+    path: /etc/default/ufw
+  register: ufw_default
+  become: true
+
+- name: Отключить IPv6 в UFW если файл есть
+  ansible.builtin.lineinfile:
+    path: /etc/default/ufw
+    regexp: '^IPV6='
+    line: 'IPV6=no'
+    state: present
+  when: ufw_default.stat.exists
+  notify: Restart UFW
+  become: true
+
+# Политики по умолчанию
+- name: Установка политики по умолчанию - запретить входящие
+  community.general.ufw:
+    direction: incoming
+    default: deny
+  become: true
+
+- name: Установка политики по умолчанию для исходящих соединений
+  community.general.ufw:
+    direction: outgoing
+    default: "{{ (ufw | default({})).outgoing_policy | default('allow') }}"
+  become: true
+
+# Разрешаем необходимые порты
+- name: Разрешение портов из списка
+  community.general.ufw:
+    rule: allow
+    port: "{{ item.port }}"
+    proto: "{{ item.proto | default('tcp') }}"
+    comment: "{{ item.comment | default('') }}"
+  loop: "{{ ((ufw | default({})).allowed_ports | default([])) | list }}"
+  become: true
+
+# Блокируем исходящие порты
+- name: Блокировка исходящих портов из списка
+  community.general.ufw:
+    rule: deny
+    direction: out
+    port: "{{ item.port }}"
+    proto: "{{ item.proto | default('tcp') }}"
+    comment: "{{ item.comment | default('') }}"
+  loop: "{{ ((ufw | default({})).blocked_outgoing_ports | default([])) | list }}"
+  become: true
+
+# Разрешаем исходящие порты (если политика deny)
+- name: Разрешение исходящих портов из списка
+  community.general.ufw:
+    rule: allow
+    direction: out
+    port: "{{ item.port }}"
+    proto: "{{ item.proto | default('tcp') }}"
+    comment: "{{ item.comment | default('') }}"
+  loop: "{{ ((ufw | default({})).allowed_outgoing_ports | default([])) | list }}"
+  when: (ufw | default({})).outgoing_policy | default('allow') == 'deny'
+  become: true
+
+# Включаем UFW
+- name: Включение UFW
+  community.general.ufw:
+    state: enabled
+  become: true
+
+- name: Проверка статуса UFW
+  ansible.builtin.command: ufw status verbose
+  register: ufw_final_status
+  changed_when: false
+  become: true
+
+- name: Вывод итогового статуса UFW
+  ansible.builtin.debug:
+    var: ufw_final_status.stdout_lines

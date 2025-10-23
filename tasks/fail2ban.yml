@@ -1,0 +1,124 @@
+- name: Проверить, установлен ли UFW
+  ansible.builtin.package_facts:
+    manager: auto
+
+- name: Отметить, установлен ли UFW
+  ansible.builtin.set_fact:
+    ufw_installed: "{{ 'ufw' in ansible_facts.packages }}"
+
+- name: Получить статус UFW (CLI)
+  ansible.builtin.command: ufw status
+  register: ufw_status_cli
+  changed_when: false
+  failed_when: false
+  when: ufw_installed
+  become: true
+
+- name: Сформировать факт ufw_ok
+  ansible.builtin.set_fact:
+    ufw_ok: >-
+      {{ ufw_installed and
+      (ufw_status_cli.stdout is defined) and
+      (ufw_status_cli.stdout is search('^Status:\s+active', multiline=True)) }}
+
+- name: Отказ если UFW не установлен или не активен
+  ansible.builtin.fail:
+    msg: "UFW должен быть установлен и активирован перед настройкой fail2ban!"
+  when:
+    - (require_ufw | default(true)) | bool
+    - not ufw_ok
+
+# --- Установка ---
+- name: Установка fail2ban
+  ansible.builtin.apt:
+    name: fail2ban
+    state: present
+    update_cache: true
+  become: true
+
+- name: Установка python3-systemd
+  ansible.builtin.apt:
+    name: python3-systemd
+    state: present
+    update_cache: true
+  become: true
+
+# --- Создание action для UFW ---
+- name: Создание action файла для UFW
+  ansible.builtin.copy:
+    dest: /etc/fail2ban/action.d/ufw.conf
+    content: |
+      # Fail2Ban action для UFW
+      # Автоматически сгенерирован Ansible
+      [Definition]
+      actionstart =
+      actionstop =
+      actioncheck =
+      actionban = ufw insert 1 deny from <ip> to any
+      actionunban = ufw delete deny from <ip> to any
+      [Init]
+      name = default
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart fail2ban
+  become: true
+
+# --- Настройка jail.local ---
+- name: Настройка fail2ban jail
+  ansible.builtin.template:
+    src: jail.local.j2
+    dest: /etc/fail2ban/jail.local
+    owner: root
+    group: root
+    mode: '0644'
+    backup: true
+  notify: Restart fail2ban
+  become: true
+
+# --- Создание кастомных фильтров (если определены) ---
+- name: Создание кастомных фильтров
+  ansible.builtin.copy:
+    dest: "/etc/fail2ban/filter.d/{{ item.name }}.local"
+    content: "{{ item.filter_content }}"
+    owner: root
+    group: root
+    mode: '0644'
+  loop: "{{ fail2ban.custom_jails | selectattr('filter_content', 'defined') | list }}"
+  when: fail2ban.custom_jails is defined
+  notify: Restart fail2ban
+  become: true
+
+# --- Запуск службы ---
+- name: Запуск и включение fail2ban
+  ansible.builtin.systemd:
+    name: fail2ban
+    state: started
+    enabled: true
+    daemon_reload: true
+  become: true
+
+# --- Проверка работы ---
+- name: Проверка статуса fail2ban
+  ansible.builtin.command: fail2ban-client status
+  register: fail2ban_status
+  changed_when: false
+  become: true
+
+- name: Вывод статуса fail2ban
+  ansible.builtin.debug:
+    var: fail2ban_status.stdout_lines
+
+- name: Проверка активных jail'ов
+  ansible.builtin.command: "fail2ban-client status {{ item }}"
+  loop:
+    - sshd
+  register: jail_status
+  changed_when: false
+  failed_when: false
+  become: true
+
+- name: Вывод статуса SSH jail
+  ansible.builtin.debug:
+    msg: "{{ jail_status.results[0].stdout_lines }}"
+  when: jail_status.results[0].rc == 0

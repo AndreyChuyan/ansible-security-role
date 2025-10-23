@@ -1,0 +1,30 @@
+---
+# Основной playbook роли security-hardening
+- name: Обновление системы
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+  tags:
+    - update
+
+# Подключаем отдельные таски
+- name: Настройка UFW firewall
+  ansible.builtin.import_tasks: ufw.yml
+  tags:
+    - firewall
+    - ufw
+
+- name: Усиление безопасности SSH
+  ansible.builtin.import_tasks: ssh.yml
+  tags:
+    - ssh
+
+- name: Настройка пользователей и доступа
+  ansible.builtin.import_tasks: users.yml
+  tags:
+    - users
+
+- name: Установка и настройка Fail2ban
+  ansible.builtin.import_tasks: fail2ban.yml
+  tags:
+    - fail2ban
